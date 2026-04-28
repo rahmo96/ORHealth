@@ -15,6 +15,7 @@ from app.models.schemas import DailySummary, FoodItem
 from app.services.nutrition_service import NutritionService
 from app.ui.styles import APP_CSS
 
+st.set_page_config(page_title="ORHealth", page_icon="🍏", layout="centered")
 configure_logging()
 LOGGER: logging.Logger = logging.getLogger(__name__)
 USER_CHOICES: tuple[str, str] = ("רחמים", "אורלי")
@@ -109,7 +110,6 @@ def render_dashboard(user_name: str) -> None:
 
 def main() -> None:
     """Run Streamlit presentation entry point."""
-    st.set_page_config(page_title="ORHealth", page_icon="🍏", layout="centered")
     st.markdown(APP_CSS, unsafe_allow_html=True)
 
     if "logged_in_user" not in st.session_state:
