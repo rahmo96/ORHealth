@@ -14,7 +14,7 @@ from streamlit.errors import StreamlitAPIException
 from app.core.exceptions import AppError, DatabaseAppError, ValidationAppError
 from app.core.logging_config import configure_logging
 from app.database.repository import NutritionRepository
-from app.models.schemas import DailySummary, FoodItem
+from app.models.schemas import DailySummary, FoodItem, MealBasketItem
 from app.services.nutrition_service import NutritionService
 from app.ui.styles import APP_CSS
 
@@ -105,7 +105,7 @@ def render_login() -> None:
 
 
 def render_dashboard(user_name: str) -> None:
-    """Render main dashboard and meal form."""
+    """Render meal journal with basket and batch save."""
     st.markdown(f'<div class="title">היומן של {user_name}</div>', unsafe_allow_html=True)
     target_date: date = date.today()
     foods: list[FoodItem] = cached_food_catalog()
@@ -121,42 +121,95 @@ def render_dashboard(user_name: str) -> None:
     with st.form("meal_form", clear_on_submit=True):
         selected_food: str = st.selectbox("בחר מאכל:", options=[""] + food_options)
         default_cals: int = calories_by_food.get(selected_food, 0)
-        calories_input: int = int(st.number_input("קלוריות:", min_value=1, value=max(default_cals, 1)))
+        st.number_input(
+            "קלוריות (נעול לפי מסד נתונים):",
+            min_value=1,
+            value=max(default_cals, 1),
+            disabled=True,
+        )
         is_fail: bool = st.toggle("נפילה? 😢")
-        submitted: bool = st.form_submit_button("שמור ביומן ✅", use_container_width=True)
+        submitted: bool = st.form_submit_button("הוסף לסל הארוחה ➕", use_container_width=True)
 
     if submitted:
         if not selected_food:
             st.toast("צריך לבחור מאכל לפני שמירה", icon="⚠️")
             return
-        with st.status("שומר נתונים...", expanded=False) as status:
-            try:
-                get_service().add_meal_log(
-                    user_name=user_name,
-                    food_name=selected_food,
-                    calories_consumed=calories_input,
-                    is_fail=is_fail,
-                )
-                cached_daily_summary.clear()
-                status.update(label="הנתון נשמר בהצלחה", state="complete")
-                st.toast("נשמר בהצלחה", icon="✅")
-                st.rerun()
-            except ValidationAppError:
-                LOGGER.warning("Validation error while saving meal.")
-                status.update(label="קלט לא תקין", state="error")
-                st.toast("הקלט לא תקין. בדוק את הנתונים.", icon="🚫")
-            except DatabaseAppError:
-                LOGGER.exception("Database error while saving meal.")
-                status.update(label="שגיאת מסד נתונים", state="error")
-                st.toast("שמירה נכשלה עקב שגיאת מסד נתונים.", icon="🔥")
-            except AppError:
-                LOGGER.exception("Application error while saving meal.")
-                status.update(label="שגיאת יישום", state="error")
-                st.toast("אירעה שגיאה בלתי צפויה.", icon="⚠️")
-            except Exception:
-                LOGGER.exception("Unexpected error while saving meal.")
-                status.update(label="כשל בלתי צפוי", state="error")
-                st.toast("שגיאה בלתי צפויה. נסה שוב.", icon="❌")
+        basket_item = MealBasketItem(
+            food_name=selected_food,
+            calories_consumed=default_cals,
+            is_fail=is_fail,
+        )
+        st.session_state.meal_basket.append(basket_item.model_dump())
+        st.toast("הפריט נוסף לסל הארוחה", icon="🧺")
+        st.rerun()
+
+    basket_data: list[dict[str, Any]] = st.session_state.meal_basket
+    st.subheader("סל ארוחה")
+    if basket_data:
+        basket_items: list[MealBasketItem] = [MealBasketItem.model_validate(item) for item in basket_data]
+        basket_total: int = sum(item.calories_consumed for item in basket_items)
+        st.caption(f"פריטים בסל: {len(basket_items)} | סה\"כ קלוריות: {basket_total}")
+        st.dataframe(
+            {
+                "מאכל": [item.food_name for item in basket_items],
+                "קלוריות": [item.calories_consumed for item in basket_items],
+                "נפילה": ["כן" if item.is_fail else "לא" for item in basket_items],
+            },
+            use_container_width=True,
+            hide_index=True,
+        )
+        control_col1, control_col2 = st.columns(2)
+        if control_col1.button("שמור ארוחה מלאה ✅", use_container_width=True):
+            with st.status("שומר את כל הסל...", expanded=False) as status:
+                try:
+                    get_service().add_full_meal(user_name=user_name, items=basket_items)
+                    st.session_state.meal_basket = []
+                    cached_daily_summary.clear()
+                    status.update(label="הארוחה נשמרה בהצלחה", state="complete")
+                    st.toast("כל הפריטים נשמרו בהצלחה", icon="🎉")
+                    st.rerun()
+                except ValidationAppError:
+                    LOGGER.warning("Validation error while saving full meal.")
+                    status.update(label="קלט לא תקין", state="error")
+                    st.toast("הקלט לא תקין. בדוק את סל הארוחה.", icon="🚫")
+                except DatabaseAppError:
+                    LOGGER.exception("Database error while saving full meal.")
+                    status.update(label="שגיאת מסד נתונים", state="error")
+                    st.toast("שמירה נכשלה עקב שגיאת מסד נתונים.", icon="🔥")
+                except AppError:
+                    LOGGER.exception("Application error while saving full meal.")
+                    status.update(label="שגיאת יישום", state="error")
+                    st.toast("אירעה שגיאה בלתי צפויה.", icon="⚠️")
+                except Exception:
+                    LOGGER.exception("Unexpected error while saving full meal.")
+                    status.update(label="כשל בלתי צפוי", state="error")
+                    st.toast("שגיאה בלתי צפויה. נסה שוב.", icon="❌")
+        if control_col2.button("נקה סל 🗑️", use_container_width=True):
+            st.session_state.meal_basket = []
+            st.toast("סל הארוחה נוקה", icon="🧹")
+            st.rerun()
+    else:
+        st.info("סל הארוחה ריק. הוסף פריטים כדי לשמור ארוחה מלאה.")
+
+
+def render_progress_page(user_name: str) -> None:
+    """Render progress placeholder page."""
+    st.markdown('<div class="title">התקדמות</div>', unsafe_allow_html=True)
+    summary: DailySummary = cached_daily_summary(user_name=user_name, target_date=date.today())
+    st.metric("סה\"כ קלוריות היום", summary.total_calories)
+    st.info("בקרוב: גרפים ומעקב מגמות.")
+
+
+def render_settings_page(user_name: str) -> None:
+    """Render settings page with user profile and goals."""
+    st.markdown('<div class="title">הגדרות</div>', unsafe_allow_html=True)
+    service: NutritionService = get_service()
+    st.write(f"**משתמש מחובר:** {user_name}")
+    st.write(f"**יעד קלורי יומי:** {service.get_daily_goal(user_name)}")
+    if st.button("התנתקות", use_container_width=True):
+        st.session_state.logged_in_user = None
+        st.session_state.meal_basket = []
+        st.rerun()
 
 
 def main() -> None:
@@ -165,15 +218,27 @@ def main() -> None:
 
     if "logged_in_user" not in st.session_state:
         st.session_state.logged_in_user = None
+    if "meal_basket" not in st.session_state:
+        st.session_state.meal_basket = []
 
     if st.session_state.logged_in_user is None:
         render_login()
         st.stop()
 
     current_user: str = str(st.session_state.logged_in_user)
+    selected_page: str = st.sidebar.radio(
+        "ניווט",
+        options=["יומן ארוחות", "התקדמות", "הגדרות"],
+        index=0,
+    )
     try:
         with st.spinner("טוען נתונים..."):
-            render_dashboard(current_user)
+            if selected_page == "יומן ארוחות":
+                render_dashboard(current_user)
+            elif selected_page == "התקדמות":
+                render_progress_page(current_user)
+            else:
+                render_settings_page(current_user)
     except DatabaseAppError as error:
         error_text: str = str(error)
         if "Cannot assign requested address" in error_text:

@@ -36,6 +36,14 @@ class FoodItem(BaseModel):
     default_calories: int = Field(gt=0)
 
 
+class MealBasketItem(BaseModel):
+    """One item stored in the UI meal basket."""
+
+    food_name: str = Field(min_length=1, max_length=120)
+    calories_consumed: int = Field(gt=0, le=10000)
+    is_fail: bool = False
+
+
 class DailyLogRecord(BaseModel):
     """Daily log row returned from the database."""
 

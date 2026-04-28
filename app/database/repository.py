@@ -97,6 +97,28 @@ class NutritionRepository:
                 },
             )
 
+    def insert_daily_logs(self, meals: list[MealLogCreate]) -> None:
+        """Insert multiple meal log rows in one transaction."""
+        if not meals:
+            return
+        query = text(
+            """
+            INSERT INTO daily_logs (user_name, food_name, calories_consumed, is_fail)
+            VALUES (:user_name, :food_name, :calories_consumed, :is_fail);
+            """
+        )
+        payload: list[dict[str, Any]] = [
+            {
+                "user_name": meal.user_name,
+                "food_name": meal.food_name,
+                "calories_consumed": meal.calories_consumed,
+                "is_fail": meal.is_fail,
+            }
+            for meal in meals
+        ]
+        with self.session_scope() as session:
+            session.execute(query, payload)
+
     def fetch_daily_logs(self, user_name: str, target_date: date) -> list[DailyLogRecord]:
         """Fetch user logs for a specific date."""
         try:

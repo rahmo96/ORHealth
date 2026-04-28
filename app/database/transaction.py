@@ -7,7 +7,7 @@ from functools import wraps
 import logging
 from typing import Any, TypeVar
 
-from app.core.exceptions import DatabaseAppError
+from app.core.exceptions import AppError, DatabaseAppError
 
 LOGGER: logging.Logger = logging.getLogger(__name__)
 F = TypeVar("F", bound=Callable[..., Any])
@@ -20,7 +20,7 @@ def db_safe_operation(func: F) -> F:
     def wrapper(*args: Any, **kwargs: Any) -> Any:
         try:
             return func(*args, **kwargs)
-        except DatabaseAppError:
+        except (DatabaseAppError, AppError):
             raise
         except Exception as error:
             LOGGER.exception("Unhandled database operation error in %s.", func.__name__)
