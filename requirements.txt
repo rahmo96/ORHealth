@@ -3,5 +3,6 @@ supabase
 pandas
 sqlalchemy
 pydantic
+psycopg2
 psycopg2-binary
 streamlit-authenticator
