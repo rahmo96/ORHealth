@@ -2,11 +2,14 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from datetime import date
 import logging
+import os
 from typing import Any
 
 import streamlit as st
+from streamlit.errors import StreamlitAPIException
 
 from app.core.exceptions import AppError, DatabaseAppError, ValidationAppError
 from app.core.logging_config import configure_logging
@@ -21,10 +24,52 @@ LOGGER: logging.Logger = logging.getLogger(__name__)
 USER_CHOICES: tuple[str, str] = ("רחמים", "אורלי")
 
 
+def resolve_database_url() -> str | None:
+    """Resolve database URL from environment or Streamlit secrets."""
+    environment_url: str | None = os.getenv("DATABASE_URL")
+    if environment_url:
+        return environment_url
+
+    connections: Any = st.secrets.get("connections")
+    if connections and isinstance(connections, dict):
+        postgres_config: Any = connections.get("postgresql")
+        if postgres_config and isinstance(postgres_config, dict):
+            secret_url: Any = postgres_config.get("url")
+            if isinstance(secret_url, str) and secret_url.strip():
+                return secret_url.strip()
+    return None
+
+
+def resolve_streamlit_sql_config() -> dict[str, Any]:
+    """Resolve SQL connection config from Streamlit Cloud secrets TOML."""
+    connections: Any = st.secrets.get("connections")
+    if not isinstance(connections, Mapping):
+        return {}
+
+    postgres_config: Any = connections.get("postgresql")
+    if not isinstance(postgres_config, Mapping):
+        return {}
+
+    return dict(postgres_config)
+
+
 @st.cache_resource(show_spinner=False)
 def get_service() -> NutritionService:
     """Build and cache the service object."""
-    connection: Any = st.connection("postgresql", type="sql")
+    sql_config: dict[str, Any] = resolve_streamlit_sql_config()
+    db_url: str | None = resolve_database_url()
+    try:
+        connection: Any = st.connection(
+            "postgresql",
+            type="sql",
+            **({"url": db_url} if db_url else {}),
+            **sql_config,
+        )
+    except StreamlitAPIException as error:
+        LOGGER.exception("Missing or invalid SQL connection configuration.")
+        raise DatabaseAppError(
+            "Missing SQL DB connection. Configure secrets.toml or DATABASE_URL."
+        ) from error
     repository = NutritionRepository(connection=connection)
     return NutritionService(repository=repository)
 
@@ -120,8 +165,29 @@ def main() -> None:
         st.stop()
 
     current_user: str = str(st.session_state.logged_in_user)
-    with st.spinner("טוען נתונים..."):
-        render_dashboard(current_user)
+    try:
+        with st.spinner("טוען נתונים..."):
+            render_dashboard(current_user)
+    except DatabaseAppError:
+        st.error("Missing SQL DB connection configuration.")
+        st.markdown(
+            "Configure Streamlit Cloud secrets with `[connections.postgresql]`."
+            "\nYou can use either a single `url` or split credentials."
+        )
+        st.code(
+            '[connections.postgresql]\n'
+            'url = "postgresql+psycopg2://user:pass@host:5432/dbname"\n\n'
+            '# or\n'
+            '[connections.postgresql]\n'
+            'dialect = "postgresql"\n'
+            'host = "db.xxxxx.supabase.co"\n'
+            'port = 5432\n'
+            'database = "postgres"\n'
+            'username = "postgres"\n'
+            'password = "YOUR_PASSWORD"',
+            language="toml",
+        )
+        st.stop()
 
 
 if __name__ == "__main__":
