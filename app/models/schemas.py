@@ -44,7 +44,7 @@ class DailyLogRecord(BaseModel):
     food_name: str
     calories_consumed: int = Field(gt=0)
     is_fail: bool
-    created_at: datetime
+    created_at: datetime | None = None
 
 
 class DailySummary(BaseModel):

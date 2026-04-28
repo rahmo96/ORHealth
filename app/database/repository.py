@@ -27,6 +27,21 @@ class NutritionRepository:
         """
         self._connection: Any = connection
 
+    def _get_daily_logs_columns(self) -> set[str]:
+        """Return the available columns for the daily_logs table."""
+        query = text(
+            """
+            SELECT column_name
+            FROM information_schema.columns
+            WHERE table_schema = 'public'
+              AND table_name = 'daily_logs';
+            """
+        )
+        with self.session_scope() as session:
+            result = session.execute(query)
+            rows: Sequence[Any] = result.fetchall()
+        return {str(row._mapping["column_name"]) for row in rows}
+
     @contextmanager
     def session_scope(self) -> Generator[Any, None, None]:
         """Provide a transaction-safe session scope."""
@@ -84,21 +99,36 @@ class NutritionRepository:
 
     def fetch_daily_logs(self, user_name: str, target_date: date) -> list[DailyLogRecord]:
         """Fetch user logs for a specific date."""
-        query = text(
-            """
-            SELECT id, user_name, food_name, calories_consumed, is_fail, created_at
-            FROM daily_logs
-            WHERE user_name = :user_name
-              AND DATE(created_at) = :target_date
-            ORDER BY created_at DESC;
-            """
-        )
         try:
-            with self.session_scope() as session:
-                result = session.execute(
-                    query,
-                    {"user_name": user_name, "target_date": target_date},
+            columns: set[str] = self._get_daily_logs_columns()
+            has_created_at: bool = "created_at" in columns
+            if has_created_at:
+                query = text(
+                    """
+                    SELECT id, user_name, food_name, calories_consumed, is_fail, created_at
+                    FROM daily_logs
+                    WHERE user_name = :user_name
+                      AND DATE(created_at) = :target_date
+                    ORDER BY created_at DESC;
+                    """
                 )
+                params: dict[str, Any] = {"user_name": user_name, "target_date": target_date}
+            else:
+                LOGGER.warning(
+                    "daily_logs.created_at is missing; using non-date-filtered fallback query."
+                )
+                query = text(
+                    """
+                    SELECT id, user_name, food_name, calories_consumed, is_fail, NULL::timestamp AS created_at
+                    FROM daily_logs
+                    WHERE user_name = :user_name
+                    ORDER BY id DESC;
+                    """
+                )
+                params = {"user_name": user_name}
+
+            with self.session_scope() as session:
+                result = session.execute(query, params)
                 rows: Sequence[Any] = result.fetchall()
             return [
                 DailyLogRecord.model_validate(dict(row._mapping))

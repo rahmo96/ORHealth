@@ -61,8 +61,14 @@ def get_service() -> NutritionService:
     connection_kwargs: dict[str, Any] = dict(sql_config)
     if db_url:
         connection_kwargs["url"] = db_url
-    if connection_kwargs.get("host", "").endswith(".supabase.co"):
-        connection_kwargs.setdefault("sslmode", "require")
+    connect_args: dict[str, Any] = {}
+    sslmode_value: Any = connection_kwargs.pop("sslmode", None)
+    if isinstance(sslmode_value, str) and sslmode_value.strip():
+        connect_args["sslmode"] = sslmode_value.strip()
+    if connection_kwargs.get("host", "").endswith(".supabase.co") and "sslmode" not in connect_args:
+        connect_args["sslmode"] = "require"
+    if connect_args:
+        connection_kwargs["connect_args"] = connect_args
     try:
         connection: Any = st.connection("postgresql", type="sql", **connection_kwargs)
     except StreamlitAPIException as error:
