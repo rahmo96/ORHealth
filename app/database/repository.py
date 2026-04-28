@@ -37,7 +37,7 @@ class NutritionRepository:
             except SQLAlchemyError as error:
                 session.rollback()
                 LOGGER.exception("Database transaction failed.")
-                raise DatabaseAppError("Database transaction failed.") from error
+                raise DatabaseAppError(f"Database transaction failed: {error}") from error
             except Exception:
                 session.rollback()
                 LOGGER.exception("Unexpected transaction error.")

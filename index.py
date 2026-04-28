@@ -58,13 +58,13 @@ def get_service() -> NutritionService:
     """Build and cache the service object."""
     sql_config: dict[str, Any] = resolve_streamlit_sql_config()
     db_url: str | None = resolve_database_url()
+    connection_kwargs: dict[str, Any] = dict(sql_config)
+    if db_url:
+        connection_kwargs["url"] = db_url
+    if connection_kwargs.get("host", "").endswith(".supabase.co"):
+        connection_kwargs.setdefault("sslmode", "require")
     try:
-        connection: Any = st.connection(
-            "postgresql",
-            type="sql",
-            **({"url": db_url} if db_url else {}),
-            **sql_config,
-        )
+        connection: Any = st.connection("postgresql", type="sql", **connection_kwargs)
     except StreamlitAPIException as error:
         LOGGER.exception("Missing or invalid SQL connection configuration.")
         raise DatabaseAppError(
@@ -168,25 +168,35 @@ def main() -> None:
     try:
         with st.spinner("טוען נתונים..."):
             render_dashboard(current_user)
-    except DatabaseAppError:
-        st.error("Missing SQL DB connection configuration.")
+    except DatabaseAppError as error:
+        error_text: str = str(error)
+        if "Cannot assign requested address" in error_text:
+            st.error("Network route to DB failed (likely IPv6 route issue on host).")
+            st.markdown(
+                "Use your **Supabase Session Pooler** host in Streamlit secrets "
+                "(not the direct `db.<project>.supabase.co` host)."
+            )
+        else:
+            st.error("Missing or invalid SQL DB connection configuration.")
         st.markdown(
             "Configure Streamlit Cloud secrets with `[connections.postgresql]`."
-            "\nYou can use either a single `url` or split credentials."
+            "\nRecommended: use Supabase pooler + `sslmode = \"require\"`."
         )
         st.code(
             '[connections.postgresql]\n'
-            'url = "postgresql+psycopg2://user:pass@host:5432/dbname"\n\n'
+            'url = "postgresql+psycopg2://postgres:YOUR_PASSWORD@aws-0-REGION.pooler.supabase.com:6543/postgres?sslmode=require"\n\n'
             '# or\n'
             '[connections.postgresql]\n'
             'dialect = "postgresql"\n'
-            'host = "db.xxxxx.supabase.co"\n'
-            'port = 5432\n'
+            'host = "aws-0-REGION.pooler.supabase.com"\n'
+            'port = 6543\n'
             'database = "postgres"\n'
             'username = "postgres"\n'
-            'password = "YOUR_PASSWORD"',
+            'password = "YOUR_PASSWORD"\n'
+            'sslmode = "require"',
             language="toml",
         )
+        st.caption(f"Details: `{error_text[:240]}`")
         st.stop()
 
 
