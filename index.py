@@ -81,15 +81,15 @@ def get_service() -> NutritionService:
 
 
 @st.cache_data(ttl=60, show_spinner=False)
-def cached_food_catalog() -> list[FoodItem]:
-    """Return cached food catalog."""
-    return get_service().get_food_catalog()
+def cached_food_catalog() -> list[dict[str, Any]]:
+    """Return cached food catalog as serializable dictionaries."""
+    return [item.model_dump() for item in get_service().get_food_catalog()]
 
 
 @st.cache_data(ttl=30, show_spinner=False)
-def cached_daily_summary(user_name: str, target_date: date) -> DailySummary:
-    """Return cached daily summary."""
-    return get_service().get_daily_summary(user_name=user_name, target_date=target_date)
+def cached_daily_summary(user_name: str, target_date: date) -> dict[str, Any]:
+    """Return cached daily summary as a serializable dictionary."""
+    return get_service().get_daily_summary(user_name=user_name, target_date=target_date).model_dump()
 
 
 def render_login() -> None:
@@ -108,11 +108,15 @@ def render_dashboard(user_name: str) -> None:
     """Render meal journal with basket and batch save."""
     st.markdown(f'<div class="title">היומן של {user_name}</div>', unsafe_allow_html=True)
     target_date: date = date.today()
-    foods: list[FoodItem] = cached_food_catalog()
+    foods: list[FoodItem] = [
+        FoodItem.model_validate(item) for item in cached_food_catalog()
+    ]
     food_options: list[str] = [item.food_name for item in foods]
     calories_by_food: dict[str, int] = {item.food_name: item.default_calories for item in foods}
 
-    summary: DailySummary = cached_daily_summary(user_name=user_name, target_date=target_date)
+    summary: DailySummary = DailySummary.model_validate(
+        cached_daily_summary(user_name=user_name, target_date=target_date)
+    )
     metric_col1, metric_col2, metric_col3 = st.columns(3)
     metric_col1.metric("סה\"כ קלוריות", summary.total_calories)
     metric_col2.metric("נותר להיום", summary.remaining_calories)
@@ -195,7 +199,9 @@ def render_dashboard(user_name: str) -> None:
 def render_progress_page(user_name: str) -> None:
     """Render progress placeholder page."""
     st.markdown('<div class="title">התקדמות</div>', unsafe_allow_html=True)
-    summary: DailySummary = cached_daily_summary(user_name=user_name, target_date=date.today())
+    summary: DailySummary = DailySummary.model_validate(
+        cached_daily_summary(user_name=user_name, target_date=date.today())
+    )
     st.metric("סה\"כ קלוריות היום", summary.total_calories)
     st.info("בקרוב: גרפים ומעקב מגמות.")
 
