@@ -10,7 +10,7 @@ from pydantic import ValidationError
 from app.core.exceptions import ValidationAppError
 from app.database.repository import NutritionRepository
 from app.database.transaction import db_safe_operation
-from app.models.schemas import DailySummary, FoodItem, MealBasketItem, MealLogCreate
+from app.models.schemas import DailyLogRecord, DailySummary, FoodItem, MealBasketItem, MealLogCreate
 
 LOGGER: logging.Logger = logging.getLogger(__name__)
 DEFAULT_DAILY_GOAL: int = 1800
@@ -39,6 +39,7 @@ class NutritionService:
         food_name: str,
         calories_consumed: int,
         is_fail: bool,
+        meal_date: date,
     ) -> None:
         """Validate and store a meal log record."""
         try:
@@ -47,6 +48,7 @@ class NutritionService:
                 food_name=food_name,
                 calories_consumed=calories_consumed,
                 is_fail=is_fail,
+                meal_date=meal_date,
             )
         except ValidationError as error:
             LOGGER.warning("Meal log validation failed: %s", error)
@@ -65,6 +67,7 @@ class NutritionService:
                     food_name=item.food_name,
                     calories_consumed=item.calories_consumed,
                     is_fail=item.is_fail,
+                    meal_date=item.meal_date,
                 )
                 for item in items
             ]
@@ -76,6 +79,10 @@ class NutritionService:
     def get_daily_goal(self, user_name: str) -> int:
         """Return the configured daily calorie goal for a user."""
         return USER_DAILY_GOALS.get(user_name, DEFAULT_DAILY_GOAL)
+
+    def get_daily_logs(self, *, user_name: str, target_date: date) -> list[DailyLogRecord]:
+        """Return all meal logs for a user on a selected day."""
+        return self._repository.fetch_daily_logs(user_name=user_name, target_date=target_date)
 
     def get_daily_summary(self, *, user_name: str, target_date: date) -> DailySummary:
         """Calculate total and remaining calories for a user day."""

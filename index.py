@@ -14,7 +14,7 @@ from streamlit.errors import StreamlitAPIException
 from app.core.exceptions import AppError, DatabaseAppError, ValidationAppError
 from app.core.logging_config import configure_logging
 from app.database.repository import NutritionRepository
-from app.models.schemas import DailySummary, FoodItem, MealBasketItem
+from app.models.schemas import DailyLogRecord, DailySummary, FoodItem, MealBasketItem
 from app.services.nutrition_service import NutritionService
 from app.ui.styles import APP_CSS
 
@@ -92,6 +92,16 @@ def cached_daily_summary(user_name: str, target_date: date) -> dict[str, Any]:
     return get_service().get_daily_summary(user_name=user_name, target_date=target_date).model_dump()
 
 
+@st.cache_data(ttl=30, show_spinner=False)
+def cached_daily_logs(user_name: str, target_date: date) -> list[dict[str, Any]]:
+    """Return cached daily logs as serializable dictionaries."""
+    records: list[DailyLogRecord] = get_service().get_daily_logs(
+        user_name=user_name,
+        target_date=target_date,
+    )
+    return [record.model_dump(mode="json") for record in records]
+
+
 def render_login() -> None:
     """Render login selection screen."""
     st.markdown('<div class="title">מי נכנס למערכת? 🍎</div>', unsafe_allow_html=True)
@@ -107,7 +117,7 @@ def render_login() -> None:
 def render_dashboard(user_name: str) -> None:
     """Render meal journal with basket and batch save."""
     st.markdown(f'<div class="title">היומן של {user_name}</div>', unsafe_allow_html=True)
-    target_date: date = date.today()
+    target_date: date = st.date_input("בחר יום ביומן", value=date.today(), format="YYYY-MM-DD")
     foods: list[FoodItem] = [
         FoodItem.model_validate(item) for item in cached_food_catalog()
     ]
@@ -142,15 +152,20 @@ def render_dashboard(user_name: str) -> None:
             food_name=selected_food,
             calories_consumed=default_cals,
             is_fail=is_fail,
+            meal_date=target_date,
         )
         st.session_state.meal_basket.append(basket_item.model_dump())
         st.toast("הפריט נוסף לסל הארוחה", icon="🧺")
         st.rerun()
 
     basket_data: list[dict[str, Any]] = st.session_state.meal_basket
-    st.subheader("סל ארוחה")
-    if basket_data:
-        basket_items: list[MealBasketItem] = [MealBasketItem.model_validate(item) for item in basket_data]
+    basket_items_all: list[MealBasketItem] = [MealBasketItem.model_validate(item) for item in basket_data]
+    basket_items_for_date: list[MealBasketItem] = [
+        item for item in basket_items_all if item.meal_date == target_date
+    ]
+    st.subheader(f"סל ארוחה לתאריך {target_date.isoformat()}")
+    if basket_items_for_date:
+        basket_items: list[MealBasketItem] = basket_items_for_date
         basket_total: int = sum(item.calories_consumed for item in basket_items)
         st.caption(f"פריטים בסל: {len(basket_items)} | סה\"כ קלוריות: {basket_total}")
         st.dataframe(
@@ -167,8 +182,13 @@ def render_dashboard(user_name: str) -> None:
             with st.status("שומר את כל הסל...", expanded=False) as status:
                 try:
                     get_service().add_full_meal(user_name=user_name, items=basket_items)
-                    st.session_state.meal_basket = []
+                    st.session_state.meal_basket = [
+                        item.model_dump()
+                        for item in basket_items_all
+                        if item.meal_date != target_date
+                    ]
                     cached_daily_summary.clear()
+                    cached_daily_logs.clear()
                     status.update(label="הארוחה נשמרה בהצלחה", state="complete")
                     st.toast("כל הפריטים נשמרו בהצלחה", icon="🎉")
                     st.rerun()
@@ -189,20 +209,43 @@ def render_dashboard(user_name: str) -> None:
                     status.update(label="כשל בלתי צפוי", state="error")
                     st.toast("שגיאה בלתי צפויה. נסה שוב.", icon="❌")
         if control_col2.button("נקה סל 🗑️", use_container_width=True):
-            st.session_state.meal_basket = []
+            st.session_state.meal_basket = [
+                item.model_dump()
+                for item in basket_items_all
+                if item.meal_date != target_date
+            ]
             st.toast("סל הארוחה נוקה", icon="🧹")
             st.rerun()
     else:
         st.info("סל הארוחה ריק. הוסף פריטים כדי לשמור ארוחה מלאה.")
+    st.subheader("ארוחות שנשמרו ליום הנבחר")
+    saved_logs: list[DailyLogRecord] = [
+        DailyLogRecord.model_validate(item)
+        for item in cached_daily_logs(user_name=user_name, target_date=target_date)
+    ]
+    if saved_logs:
+        st.dataframe(
+            {
+                "מאכל": [record.food_name for record in saved_logs],
+                "קלוריות": [record.calories_consumed for record in saved_logs],
+                "נפילה": ["כן" if record.is_fail else "לא" for record in saved_logs],
+            },
+            use_container_width=True,
+            hide_index=True,
+        )
+    else:
+        st.caption("אין עדיין ארוחות שמורות לתאריך הזה.")
 
 
 def render_progress_page(user_name: str) -> None:
     """Render progress placeholder page."""
     st.markdown('<div class="title">התקדמות</div>', unsafe_allow_html=True)
+    progress_date: date = st.date_input("בחר תאריך למעקב", value=date.today(), key="progress_date")
     summary: DailySummary = DailySummary.model_validate(
-        cached_daily_summary(user_name=user_name, target_date=date.today())
+        cached_daily_summary(user_name=user_name, target_date=progress_date)
     )
     st.metric("סה\"כ קלוריות היום", summary.total_calories)
+    st.metric("נותר ליעד", summary.remaining_calories)
     st.info("בקרוב: גרפים ומעקב מגמות.")
 
 

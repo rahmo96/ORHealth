@@ -80,42 +80,72 @@ class NutritionRepository:
 
     def insert_daily_log(self, meal: MealLogCreate) -> None:
         """Insert one meal log row."""
-        query = text(
-            """
-            INSERT INTO daily_logs (user_name, food_name, calories_consumed, is_fail)
-            VALUES (:user_name, :food_name, :calories_consumed, :is_fail);
-            """
-        )
-        with self.session_scope() as session:
-            session.execute(
-                query,
-                {
-                    "user_name": meal.user_name,
-                    "food_name": meal.food_name,
-                    "calories_consumed": meal.calories_consumed,
-                    "is_fail": meal.is_fail,
-                },
+        columns: set[str] = self._get_daily_logs_columns()
+        has_meal_date: bool = "meal_date" in columns
+        if has_meal_date:
+            query = text(
+                """
+                INSERT INTO daily_logs (user_name, food_name, calories_consumed, is_fail, meal_date)
+                VALUES (:user_name, :food_name, :calories_consumed, :is_fail, :meal_date);
+                """
             )
-
-    def insert_daily_logs(self, meals: list[MealLogCreate]) -> None:
-        """Insert multiple meal log rows in one transaction."""
-        if not meals:
-            return
-        query = text(
-            """
-            INSERT INTO daily_logs (user_name, food_name, calories_consumed, is_fail)
-            VALUES (:user_name, :food_name, :calories_consumed, :is_fail);
-            """
-        )
-        payload: list[dict[str, Any]] = [
-            {
+        else:
+            query = text(
+                """
+                INSERT INTO daily_logs (user_name, food_name, calories_consumed, is_fail)
+                VALUES (:user_name, :food_name, :calories_consumed, :is_fail);
+                """
+            )
+        with self.session_scope() as session:
+            payload: dict[str, Any] = {
                 "user_name": meal.user_name,
                 "food_name": meal.food_name,
                 "calories_consumed": meal.calories_consumed,
                 "is_fail": meal.is_fail,
             }
-            for meal in meals
-        ]
+            if has_meal_date:
+                payload["meal_date"] = meal.meal_date
+            session.execute(query, payload)
+
+    def insert_daily_logs(self, meals: list[MealLogCreate]) -> None:
+        """Insert multiple meal log rows in one transaction."""
+        if not meals:
+            return
+        columns: set[str] = self._get_daily_logs_columns()
+        has_meal_date: bool = "meal_date" in columns
+        if has_meal_date:
+            query = text(
+                """
+                INSERT INTO daily_logs (user_name, food_name, calories_consumed, is_fail, meal_date)
+                VALUES (:user_name, :food_name, :calories_consumed, :is_fail, :meal_date);
+                """
+            )
+            payload: list[dict[str, Any]] = [
+                {
+                    "user_name": meal.user_name,
+                    "food_name": meal.food_name,
+                    "calories_consumed": meal.calories_consumed,
+                    "is_fail": meal.is_fail,
+                    "meal_date": meal.meal_date,
+                }
+                for meal in meals
+            ]
+        else:
+            query = text(
+                """
+                INSERT INTO daily_logs (user_name, food_name, calories_consumed, is_fail)
+                VALUES (:user_name, :food_name, :calories_consumed, :is_fail);
+                """
+            )
+            payload = [
+                {
+                    "user_name": meal.user_name,
+                    "food_name": meal.food_name,
+                    "calories_consumed": meal.calories_consumed,
+                    "is_fail": meal.is_fail,
+                }
+                for meal in meals
+            ]
         with self.session_scope() as session:
             session.execute(query, payload)
 
@@ -124,10 +154,22 @@ class NutritionRepository:
         try:
             columns: set[str] = self._get_daily_logs_columns()
             has_created_at: bool = "created_at" in columns
-            if has_created_at:
+            has_meal_date: bool = "meal_date" in columns
+            if has_meal_date:
                 query = text(
                     """
-                    SELECT id, user_name, food_name, calories_consumed, is_fail, created_at
+                    SELECT id, user_name, food_name, calories_consumed, is_fail, NULL::timestamp AS created_at, meal_date
+                    FROM daily_logs
+                    WHERE user_name = :user_name
+                      AND meal_date = :target_date
+                    ORDER BY id DESC;
+                    """
+                )
+                params: dict[str, Any] = {"user_name": user_name, "target_date": target_date}
+            elif has_created_at:
+                query = text(
+                    """
+                    SELECT id, user_name, food_name, calories_consumed, is_fail, created_at, NULL::date AS meal_date
                     FROM daily_logs
                     WHERE user_name = :user_name
                       AND DATE(created_at) = :target_date
@@ -141,7 +183,7 @@ class NutritionRepository:
                 )
                 query = text(
                     """
-                    SELECT id, user_name, food_name, calories_consumed, is_fail, NULL::timestamp AS created_at
+                    SELECT id, user_name, food_name, calories_consumed, is_fail, NULL::timestamp AS created_at, NULL::date AS meal_date
                     FROM daily_logs
                     WHERE user_name = :user_name
                     ORDER BY id DESC;
