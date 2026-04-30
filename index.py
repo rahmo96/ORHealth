@@ -128,21 +128,50 @@ def render_dashboard(user_name: str) -> None:
         cached_daily_summary(user_name=user_name, target_date=target_date)
     )
     metric_col1, metric_col2, metric_col3 = st.columns(3)
-    metric_col1.metric("סה\"כ קלוריות", summary.total_calories)
-    metric_col2.metric("נותר להיום", summary.remaining_calories)
-    metric_col3.metric("נפילות היום", summary.fail_count)
+    metric_col1.markdown(
+        f"""
+        <div class="summary-card">
+            <div class="summary-icon" style="color:#E76F51;">🔥</div>
+            <div class="summary-title">סה"כ קלוריות</div>
+            <div class="summary-value">{summary.total_calories}</div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+    metric_col2.markdown(
+        f"""
+        <div class="summary-card">
+            <div class="summary-icon" style="color:#6D4C82;">💜</div>
+            <div class="summary-title">נותר להיום</div>
+            <div class="summary-value">{summary.remaining_calories}</div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+    metric_col3.markdown(
+        f"""
+        <div class="summary-card">
+            <div class="summary-icon" style="color:#C7B67B;">☹️</div>
+            <div class="summary-title">נפילות היום</div>
+            <div class="summary-value">{summary.fail_count}</div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
 
+    st.markdown('<div class="entry-shell">', unsafe_allow_html=True)
     with st.form("meal_form", clear_on_submit=True):
-        selected_food: str = st.selectbox("בחר מאכל:", options=[""] + food_options)
+        selected_food: str = st.selectbox("🍴 בחר מאכל", options=[""] + food_options)
         default_cals: int = calories_by_food.get(selected_food, 0)
         st.number_input(
-            "קלוריות (נעול לפי מסד נתונים):",
+            "כמות קלוריות (נעול לפי מסד נתונים)",
             min_value=1,
             value=max(default_cals, 1),
             disabled=True,
         )
-        is_fail: bool = st.toggle("נפילה? 😢")
-        submitted: bool = st.form_submit_button("הוסף לסל הארוחה ➕", use_container_width=True)
+        is_fail: bool = st.toggle("?נפילה 😳")
+        submitted: bool = st.form_submit_button("＋ הוסף לארוחה", use_container_width=True)
+    st.markdown("</div>", unsafe_allow_html=True)
 
     if submitted:
         if not selected_food:
@@ -218,7 +247,10 @@ def render_dashboard(user_name: str) -> None:
             st.rerun()
     else:
         st.info("סל הארוחה ריק. הוסף פריטים כדי לשמור ארוחה מלאה.")
-    st.subheader("ארוחות שנשמרו ליום הנבחר")
+    st.markdown(
+        f'<div style="margin-top:1rem;font-weight:700;font-size:1.1rem;">ארוחות שנשמרו ליום {target_date.isoformat()}</div>',
+        unsafe_allow_html=True,
+    )
     saved_logs: list[DailyLogRecord] = [
         DailyLogRecord.model_validate(item)
         for item in cached_daily_logs(user_name=user_name, target_date=target_date)
@@ -288,6 +320,7 @@ def main() -> None:
                 render_progress_page(current_user)
             else:
                 render_settings_page(current_user)
+        st.markdown('<div class="footer-meta">Manage app</div>', unsafe_allow_html=True)
     except DatabaseAppError as error:
         error_text: str = str(error)
         if "Cannot assign requested address" in error_text:
