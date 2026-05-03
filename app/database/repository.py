@@ -10,7 +10,9 @@ from typing import Any, Generator, Sequence
 from sqlalchemy import text
 from sqlalchemy.exc import SQLAlchemyError
 
-from app.core.exceptions import DatabaseAppError
+from sqlalchemy.exc import IntegrityError, SQLAlchemyError
+
+from app.core.exceptions import DatabaseAppError, ValidationAppError
 from app.models.schemas import DailyLogRecord, FoodItem, MealLogCreate
 
 LOGGER: logging.Logger = logging.getLogger(__name__)
@@ -81,6 +83,31 @@ class NutritionRepository:
         except Exception as error:
             LOGGER.exception("Failed to fetch food catalog.")
             raise DatabaseAppError("Failed to fetch food catalog.") from error
+
+    def insert_foods_master_row(self, *, food_name: str, default_calories: int) -> None:
+        """Insert one catalog row into foods_master (food_name must be unique)."""
+        query = text(
+            """
+            INSERT INTO foods_master (food_name, default_calories)
+            VALUES (:food_name, :default_calories);
+            """
+        )
+        payload: dict[str, Any] = {
+            "food_name": food_name,
+            "default_calories": default_calories,
+        }
+        with self._connection.session as session:
+            try:
+                session.execute(query, payload)
+                session.commit()
+            except IntegrityError as error:
+                session.rollback()
+                LOGGER.info("foods_master insert conflict for name=%s", food_name)
+                raise ValidationAppError("מאכל בשם זה כבר קיים בקטלוג.") from error
+            except SQLAlchemyError as error:
+                session.rollback()
+                LOGGER.exception("Failed to insert foods_master row.")
+                raise DatabaseAppError("Failed to insert catalog food.") from error
 
     def insert_daily_log(self, meal: MealLogCreate) -> None:
         """Insert one meal log row."""

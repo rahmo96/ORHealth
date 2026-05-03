@@ -15,6 +15,7 @@ from app.models.schemas import (
     DailyLogRecord,
     DailySummary,
     FoodItem,
+    FoodMasterCreate,
     MealBasketItem,
     MealLogCreate,
     User,
@@ -40,6 +41,22 @@ class NutritionService:
     def get_food_catalog(self) -> list[FoodItem]:
         """Return catalog for food selection."""
         return self._repository.fetch_food_catalog()
+
+    @db_safe_operation
+    def add_food_catalog_entry(self, *, food_name: str, default_calories: int) -> None:
+        """Validate and insert a new row into foods_master."""
+        try:
+            payload: FoodMasterCreate = FoodMasterCreate(
+                food_name=food_name,
+                default_calories=default_calories,
+            )
+        except ValidationError as error:
+            LOGGER.warning("Food catalog validation failed: %s", error)
+            raise ValidationAppError("נתוני מאכל לא תקינים.") from error
+        self._repository.insert_foods_master_row(
+            food_name=payload.food_name,
+            default_calories=payload.default_calories,
+        )
 
     def list_users(self) -> list[User]:
         """Return all configured users."""

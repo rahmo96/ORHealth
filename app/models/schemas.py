@@ -42,6 +42,14 @@ class FoodItem(BaseModel):
     food_name: str
     default_calories: int = Field(gt=0)
 
+
+class FoodMasterCreate(BaseModel):
+    """קלט מאומת להוספת שורה לטבלת foods_master (קטלוג מאכלים)."""
+    model_config = ConfigDict(str_strip_whitespace=True)
+
+    food_name: str = Field(min_length=1, max_length=120)
+    default_calories: int = Field(gt=0, le=10000)
+
 class MealBasketItem(BaseModel):
     """פריט בודד המאוחסן בסל הארוחות הזמני בממשק המשתמש."""
     food_name: str = Field(min_length=1, max_length=120)

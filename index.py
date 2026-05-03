@@ -323,6 +323,11 @@ def render_dashboard(user_name: str, user_id: int | None) -> None:
             },
             use_container_width=True,
             hide_index=True,
+            column_config={
+                "מאכל": st.column_config.TextColumn(alignment="right"),
+                "קלוריות": st.column_config.NumberColumn(alignment="right"),
+                "נפילה": st.column_config.TextColumn(alignment="right"),
+            },
         )
         control_col1, control_col2 = st.columns(2)
         if control_col1.button("שמור ארוחה מלאה ✅", use_container_width=True):
@@ -367,7 +372,8 @@ def render_dashboard(user_name: str, user_id: int | None) -> None:
     else:
         st.info("סל הארוחה ריק. הוסף פריטים כדי לשמור ארוחה מלאה.")
     st.markdown(
-        f'<div style="margin-top:1rem;font-weight:700;font-size:1.1rem;">ארוחות שנשמרו ליום {target_date.isoformat()}</div>',
+        f'<div style="margin-top:1rem;font-weight:700;font-size:1.1rem;text-align:right;direction:rtl;">'
+        f"ארוחות שנשמרו ליום {target_date.isoformat()}</div>",
         unsafe_allow_html=True,
     )
     saved_logs: list[DailyLogRecord] = [
@@ -382,6 +388,11 @@ def render_dashboard(user_name: str, user_id: int | None) -> None:
             },
             use_container_width=True,
             hide_index=True,
+            column_config={
+                "מאכל": st.column_config.TextColumn(alignment="right"),
+                "קלוריות": st.column_config.NumberColumn(alignment="right"),
+                "נפילה": st.column_config.TextColumn(alignment="right"),
+            },
         )
     else:
         st.caption("אין עדיין ארוחות שמורות לתאריך הזה.")
@@ -468,13 +479,79 @@ def render_settings_page(user_name: str, user_id: int | None) -> None:
         st.session_state.meal_basket = []
         st.rerun()
 
+    st.subheader("קטלוג מאכלים")
+    st.caption(
+        "הוספת מאכל חדש לטבלת foods_master: שם ייחודי וקלוריות ברירת מחדל (כפי שמוצגים ביומן)."
+    )
+    with st.form("foods_master_add_form"):
+        new_food_name: str = st.text_input(
+            "שם המאכל",
+            max_chars=120,
+            placeholder="למשל: סלט ירקות",
+        )
+        new_food_calories: int = st.number_input(
+            "קלוריות ברירת מחדל",
+            min_value=1,
+            max_value=10000,
+            value=200,
+            step=1,
+        )
+        add_catalog_submitted: bool = st.form_submit_button(
+            "הוספה לקטלוג",
+            use_container_width=True,
+        )
+    if add_catalog_submitted:
+        try:
+            service.add_food_catalog_entry(
+                food_name=new_food_name,
+                default_calories=int(new_food_calories),
+            )
+        except ValidationAppError as error:
+            st.toast(str(error), icon="🚫")
+        except DatabaseAppError:
+            LOGGER.exception("Failed to add food catalog entry.")
+            st.toast("שמירת מאכל לקטלוג נכשלה", icon="🔥")
+        else:
+            cached_food_catalog.clear()
+            st.toast("המאכל נוסף לקטלוג", icon="✅")
+            st.rerun()
+
+
+def render_manage_app_footer() -> None:
+    """Thin strip above the tab bar (styled in app/ui/styles.py)."""
+    st.markdown(
+        '<div class="manage-app-strip" role="note"></div>',
+        unsafe_allow_html=True,
+    )
+
+
+def _streamlit_bottom_dock() -> Any:
+    """Return Streamlit’s bottom layout slot (viewport-pinned); public `st.bottom` when available."""
+    return getattr(st, "bottom", None) or getattr(st, "_bottom", None)
+
+
+def render_docked_bottom_ui(active_page: str) -> None:
+    """Render Manage-app strip + tab bar in Streamlit’s bottom container so they stay pinned.
+
+    Plain CSS `position: fixed` is unreliable inside Streamlit’s transformed layout; the
+    dedicated bottom root (`st._bottom`, becoming `st.bottom`) is the supported approach.
+    """
+    dock: Any = _streamlit_bottom_dock()
+    if dock is None:
+        render_manage_app_footer()
+        render_bottom_navigation(active_page)
+        return
+    with dock:
+        render_manage_app_footer()
+        render_bottom_navigation(active_page)
+
 
 def render_bottom_navigation(active_page: str) -> None:
     """Render bottom bar with icons and Hebrew labels (RTL).
 
-    Uses st.container(border=True) so CSS can target the bordered wrapper as a
-    fixed bottom tab bar. Avoid adding other bordered containers without
-    updating styles (only one bar is expected).
+    Uses st.container(border=True) so CSS can style the bordered wrapper as the tab bar.
+    Render this inside ``render_docked_bottom_ui`` (Streamlit bottom dock), not in the
+    main scroll column. Avoid adding other bordered containers without updating styles.
     """
     icon_journal = (
         '<div class="bottom-nav-icon" aria-hidden="true">'
@@ -574,8 +651,7 @@ def main() -> None:
                 render_progress_page(current_user, current_user_id)
             else:
                 render_settings_page(current_user, current_user_id)
-        st.markdown('<div class="footer-meta">Manage app</div>', unsafe_allow_html=True)
-        render_bottom_navigation(selected_page)
+        render_docked_bottom_ui(selected_page)
     except DatabaseAppError as error:
         error_text: str = str(error)
         if "Cannot assign requested address" in error_text:
