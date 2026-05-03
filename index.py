@@ -14,14 +14,14 @@ from streamlit.errors import StreamlitAPIException
 from app.core.exceptions import AppError, DatabaseAppError, ValidationAppError
 from app.core.logging_config import configure_logging
 from app.database.repository import NutritionRepository
-from app.models.schemas import DailyLogRecord, DailySummary, FoodItem, MealBasketItem
+from app.database.users_repository import UsersRepository
+from app.models.schemas import DailyLogRecord, DailySummary, FoodItem, MealBasketItem, User
 from app.services.nutrition_service import NutritionService
 from app.ui.styles import inject_global_styles
 
 st.set_page_config(page_title="ORHealth", page_icon="🍏", layout="centered")
 configure_logging()
 LOGGER: logging.Logger = logging.getLogger(__name__)
-USER_CHOICES: tuple[str, str] = ("רחמים", "אורלי")
 
 PAGE_JOURNAL: str = "יומן ארוחות"
 PAGE_PROGRESS: str = "התקדמות"
@@ -82,7 +82,8 @@ def get_service() -> NutritionService:
             "Missing SQL DB connection. Configure secrets.toml or DATABASE_URL."
         ) from error
     repository = NutritionRepository(connection=connection)
-    return NutritionService(repository=repository)
+    users_repository = UsersRepository(connection=connection)
+    return NutritionService(repository=repository, users_repository=users_repository)
 
 
 @st.cache_data(ttl=300, show_spinner=False)
@@ -91,29 +92,146 @@ def cached_food_catalog() -> list[dict[str, Any]]:
     return [item.model_dump() for item in get_service().get_food_catalog()]
 
 
+@st.cache_data(ttl=300, show_spinner=False)
+def cached_users() -> list[dict[str, Any]]:
+    """Return cached user roster as serializable dictionaries."""
+    return [user.model_dump() for user in get_service().list_users()]
+
+
 @st.cache_data(ttl=15, show_spinner=False)
-def cached_journal_day(user_name: str, target_date: date) -> dict[str, Any]:
+def cached_journal_day(
+    user_name: str, target_date: date, user_id: int | None = None
+) -> dict[str, Any]:
     """Return logs + summary for one day in a single DB round-trip (cached briefly)."""
-    logs, summary = get_service().get_journal_for_day(user_name=user_name, target_date=target_date)
+    logs, summary = get_service().get_journal_for_day(
+        user_name=user_name, target_date=target_date, user_id=user_id
+    )
     return {
         "logs": [record.model_dump(mode="json") for record in logs],
         "summary": summary.model_dump(),
     }
 
 
+USER_AVATARS: dict[str, str] = {"רחמים": "🙋‍♂️", "אורלי": "🙋‍♀️"}
+
+
+def _user_button_label(user: User) -> str:
+    """Return a friendly button label for a user, including a default avatar."""
+    avatar: str = USER_AVATARS.get(user.display_name, "👤")
+    return f"{avatar} {user.display_name}"
+
+
 def render_login() -> None:
-    """Render login selection screen."""
+    """Render the 2-step login: pick user, then enter / set PIN."""
+    try:
+        user_dicts: list[dict[str, Any]] = cached_users()
+    except DatabaseAppError:
+        raise
+    users: list[User] = [User.model_validate(item) for item in user_dicts]
+
+    selected_name: str | None = st.session_state.get("login_selected_user")
+    selected_user: User | None = next(
+        (u for u in users if u.display_name == selected_name), None
+    )
+
+    if selected_user is None:
+        _render_user_picker(users)
+        return
+
+    _render_pin_step(selected_user)
+
+
+def _render_user_picker(users: list[User]) -> None:
+    """Render the first login step: choosing a user."""
     st.markdown('<div class="title">מי נכנס למערכת? 🍎</div>', unsafe_allow_html=True)
-    first_col, second_col = st.columns(2)
-    if first_col.button("🙋‍♂️ רחמים", use_container_width=True):
-        st.session_state.logged_in_user = USER_CHOICES[0]
+    if not users:
+        st.warning("אין משתמשים מוגדרים במערכת. הריצי את מיגרציית ה-SQL.")
+        return
+
+    columns = st.columns(min(len(users), 3))
+    for index, user in enumerate(users):
+        column = columns[index % len(columns)]
+        if column.button(
+            _user_button_label(user),
+            key=f"login_user_{user.id}",
+            use_container_width=True,
+        ):
+            st.session_state.login_selected_user = user.display_name
+            st.rerun()
+
+
+def _render_pin_step(user: User) -> None:
+    """Render the second login step: PIN creation or verification."""
+    avatar: str = USER_AVATARS.get(user.display_name, "👤")
+    st.markdown(
+        f'<div class="title">{avatar} שלום {user.display_name}</div>',
+        unsafe_allow_html=True,
+    )
+
+    if st.button("← בחר משתמש אחר", key="login_back_to_picker"):
+        st.session_state.login_selected_user = None
         st.rerun()
-    if second_col.button("🙋‍♀️ אורלי", use_container_width=True):
-        st.session_state.logged_in_user = USER_CHOICES[1]
+
+    service: NutritionService = get_service()
+
+    if not user.has_pin:
+        st.info("המשתמש שלך עדיין ללא קוד סודי. צרי קוד חדש כדי להמשיך.")
+        with st.form("login_create_pin"):
+            new_pin: str = st.text_input(
+                "קוד סודי חדש (4-6 ספרות)", type="password", max_chars=6
+            )
+            confirm_pin: str = st.text_input(
+                "אישור קוד סודי", type="password", max_chars=6
+            )
+            submitted: bool = st.form_submit_button("שמירת קוד והכניסה ✅", use_container_width=True)
+        if submitted:
+            if new_pin != confirm_pin:
+                st.toast("הקודים לא תואמים", icon="⚠️")
+                return
+            try:
+                service.set_pin(user_id=user.id, pin=new_pin)
+            except ValidationAppError:
+                st.toast("הקוד חייב להיות 4-6 ספרות", icon="🚫")
+                return
+            except DatabaseAppError:
+                LOGGER.exception("Failed to set PIN.")
+                st.toast("שמירת קוד נכשלה", icon="🔥")
+                return
+            cached_users.clear()
+            _set_logged_in_user(user)
+            st.toast("הקוד נשמר. ברוכים הבאים!", icon="🎉")
+            st.rerun()
+        return
+
+    with st.form("login_verify_pin"):
+        pin_value: str = st.text_input("קוד סודי", type="password", max_chars=6)
+        submitted = st.form_submit_button("כניסה ✅", use_container_width=True)
+    if submitted:
+        try:
+            authenticated: User = service.authenticate(
+                display_name=user.display_name, pin=pin_value
+            )
+        except ValidationAppError as error:
+            LOGGER.info("Login failed for user %s: %s", user.display_name, error)
+            st.toast("קוד שגוי", icon="🚫")
+            return
+        except DatabaseAppError:
+            LOGGER.exception("DB error during authenticate.")
+            st.toast("שגיאת מסד נתונים בכניסה", icon="🔥")
+            return
+        _set_logged_in_user(authenticated)
+        st.toast("ברוכים הבאים!", icon="🎉")
         st.rerun()
 
 
-def render_dashboard(user_name: str) -> None:
+def _set_logged_in_user(user: User) -> None:
+    """Persist the authenticated user in session state."""
+    st.session_state.logged_in_user = user.display_name
+    st.session_state.logged_in_user_id = user.id
+    st.session_state.login_selected_user = None
+
+
+def render_dashboard(user_name: str, user_id: int | None) -> None:
     """Render meal journal with basket and batch save."""
     st.markdown(f'<div class="title">היומן של {user_name}</div>', unsafe_allow_html=True)
     target_date: date = st.date_input("בחר יום ביומן", value=date.today(), format="YYYY-MM-DD")
@@ -123,7 +241,9 @@ def render_dashboard(user_name: str) -> None:
     food_options: list[str] = [item.food_name for item in foods]
     calories_by_food: dict[str, int] = {item.food_name: item.default_calories for item in foods}
 
-    journal: dict[str, Any] = cached_journal_day(user_name=user_name, target_date=target_date)
+    journal: dict[str, Any] = cached_journal_day(
+        user_name=user_name, target_date=target_date, user_id=user_id
+    )
     summary: DailySummary = DailySummary.model_validate(journal["summary"])
     metric_col1, metric_col2, metric_col3 = st.columns(3)
     metric_col1.markdown(
@@ -208,7 +328,9 @@ def render_dashboard(user_name: str) -> None:
         if control_col1.button("שמור ארוחה מלאה ✅", use_container_width=True):
             with st.status("שומר את כל הסל...", expanded=False) as status:
                 try:
-                    get_service().add_full_meal(user_name=user_name, items=basket_items)
+                    get_service().add_full_meal(
+                        user_name=user_name, items=basket_items, user_id=user_id
+                    )
                     st.session_state.meal_basket = [
                         item.model_dump()
                         for item in basket_items_all
@@ -265,25 +387,84 @@ def render_dashboard(user_name: str) -> None:
         st.caption("אין עדיין ארוחות שמורות לתאריך הזה.")
 
 
-def render_progress_page(user_name: str) -> None:
+def render_progress_page(user_name: str, user_id: int | None) -> None:
     """Render progress placeholder page."""
     st.markdown('<div class="title">התקדמות</div>', unsafe_allow_html=True)
     progress_date: date = st.date_input("בחר תאריך למעקב", value=date.today(), key="progress_date")
-    journal: dict[str, Any] = cached_journal_day(user_name=user_name, target_date=progress_date)
+    journal: dict[str, Any] = cached_journal_day(
+        user_name=user_name, target_date=progress_date, user_id=user_id
+    )
     summary: DailySummary = DailySummary.model_validate(journal["summary"])
     st.metric("סה\"כ קלוריות היום", summary.total_calories)
     st.metric("נותר ליעד", summary.remaining_calories)
     st.info("בקרוב: גרפים ומעקב מגמות.")
 
 
-def render_settings_page(user_name: str) -> None:
-    """Render settings page with user profile and goals."""
+def render_settings_page(user_name: str, user_id: int | None) -> None:
+    """Render settings page with user profile, daily goal, and PIN management."""
     st.markdown('<div class="title">הגדרות</div>', unsafe_allow_html=True)
     service: NutritionService = get_service()
+    current_goal: int = service.get_daily_goal(user_name)
     st.write(f"**משתמש מחובר:** {user_name}")
-    st.write(f"**יעד קלורי יומי:** {service.get_daily_goal(user_name)}")
+    st.write(f"**יעד קלורי יומי:** {current_goal}")
+
+    if user_id is None:
+        st.info("עדכון יעד וקוד סודי דורש מיגרציה של טבלת users.")
+    else:
+        with st.form("settings_goal_form"):
+            new_goal: int = st.number_input(
+                "יעד קלוריות יומי",
+                min_value=500,
+                max_value=10000,
+                value=int(current_goal),
+                step=50,
+            )
+            goal_submitted: bool = st.form_submit_button(
+                "שמירת יעד", use_container_width=True
+            )
+        if goal_submitted:
+            try:
+                service.update_daily_goal(user_id=user_id, goal=int(new_goal))
+            except ValidationAppError:
+                st.toast("יעד לא תקין", icon="🚫")
+            except DatabaseAppError:
+                LOGGER.exception("Failed to update daily goal.")
+                st.toast("שמירת יעד נכשלה", icon="🔥")
+            else:
+                cached_users.clear()
+                cached_journal_day.clear()
+                st.toast("היעד עודכן בהצלחה", icon="🎯")
+                st.rerun()
+
+        with st.form("settings_pin_form"):
+            new_pin: str = st.text_input(
+                "קוד סודי חדש (4-6 ספרות)", type="password", max_chars=6
+            )
+            confirm_pin: str = st.text_input(
+                "אישור קוד סודי", type="password", max_chars=6
+            )
+            pin_submitted: bool = st.form_submit_button(
+                "שינוי קוד סודי", use_container_width=True
+            )
+        if pin_submitted:
+            if new_pin != confirm_pin:
+                st.toast("הקודים לא תואמים", icon="⚠️")
+            else:
+                try:
+                    service.set_pin(user_id=user_id, pin=new_pin)
+                except ValidationAppError:
+                    st.toast("הקוד חייב להיות 4-6 ספרות", icon="🚫")
+                except DatabaseAppError:
+                    LOGGER.exception("Failed to change PIN.")
+                    st.toast("שינוי קוד נכשל", icon="🔥")
+                else:
+                    cached_users.clear()
+                    st.toast("הקוד עודכן בהצלחה", icon="🔐")
+
     if st.button("התנתקות", use_container_width=True):
         st.session_state.logged_in_user = None
+        st.session_state.logged_in_user_id = None
+        st.session_state.login_selected_user = None
         st.session_state.meal_basket = []
         st.rerun()
 
@@ -364,6 +545,10 @@ def main() -> None:
 
     if "logged_in_user" not in st.session_state:
         st.session_state.logged_in_user = None
+    if "logged_in_user_id" not in st.session_state:
+        st.session_state.logged_in_user_id = None
+    if "login_selected_user" not in st.session_state:
+        st.session_state.login_selected_user = None
     if "meal_basket" not in st.session_state:
         st.session_state.meal_basket = []
     if "active_page" not in st.session_state:
@@ -371,20 +556,24 @@ def main() -> None:
     if st.session_state.active_page not in NAV_PAGES:
         st.session_state.active_page = PAGE_JOURNAL
 
-    if st.session_state.logged_in_user is None:
-        render_login()
-        st.stop()
-
-    current_user: str = str(st.session_state.logged_in_user)
-    selected_page: str = str(st.session_state.active_page)
     try:
+        if st.session_state.logged_in_user is None:
+            render_login()
+            st.stop()
+
+        current_user: str = str(st.session_state.logged_in_user)
+        current_user_id_raw: Any = st.session_state.logged_in_user_id
+        current_user_id: int | None = (
+            int(current_user_id_raw) if isinstance(current_user_id_raw, int) else None
+        )
+        selected_page: str = str(st.session_state.active_page)
         with st.spinner("טוען נתונים..."):
             if selected_page == PAGE_JOURNAL:
-                render_dashboard(current_user)
+                render_dashboard(current_user, current_user_id)
             elif selected_page == PAGE_PROGRESS:
-                render_progress_page(current_user)
+                render_progress_page(current_user, current_user_id)
             else:
-                render_settings_page(current_user)
+                render_settings_page(current_user, current_user_id)
         st.markdown('<div class="footer-meta">Manage app</div>', unsafe_allow_html=True)
         render_bottom_navigation(selected_page)
     except DatabaseAppError as error:

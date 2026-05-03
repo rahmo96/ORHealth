@@ -86,29 +86,30 @@ class NutritionRepository:
         """Insert one meal log row."""
         columns: set[str] = self._get_daily_logs_columns()
         has_meal_date: bool = "meal_date" in columns
+        has_user_id: bool = "user_id" in columns and meal.user_id is not None
+
+        column_list: list[str] = ["user_name", "food_name", "calories_consumed", "is_fail"]
+        value_list: list[str] = [":user_name", ":food_name", ":calories_consumed", ":is_fail"]
+        payload: dict[str, Any] = {
+            "user_name": meal.user_name,
+            "food_name": meal.food_name,
+            "calories_consumed": meal.calories_consumed,
+            "is_fail": meal.is_fail,
+        }
         if has_meal_date:
-            query = text(
-                """
-                INSERT INTO daily_logs (user_name, food_name, calories_consumed, is_fail, meal_date)
-                VALUES (:user_name, :food_name, :calories_consumed, :is_fail, :meal_date);
-                """
-            )
-        else:
-            query = text(
-                """
-                INSERT INTO daily_logs (user_name, food_name, calories_consumed, is_fail)
-                VALUES (:user_name, :food_name, :calories_consumed, :is_fail);
-                """
-            )
+            column_list.append("meal_date")
+            value_list.append(":meal_date")
+            payload["meal_date"] = meal.meal_date
+        if has_user_id:
+            column_list.append("user_id")
+            value_list.append(":user_id")
+            payload["user_id"] = meal.user_id
+
+        query = text(
+            f"INSERT INTO daily_logs ({', '.join(column_list)}) "
+            f"VALUES ({', '.join(value_list)});"
+        )
         with self.session_scope() as session:
-            payload: dict[str, Any] = {
-                "user_name": meal.user_name,
-                "food_name": meal.food_name,
-                "calories_consumed": meal.calories_consumed,
-                "is_fail": meal.is_fail,
-            }
-            if has_meal_date:
-                payload["meal_date"] = meal.meal_date
             session.execute(query, payload)
 
     def insert_daily_logs(self, meals: list[MealLogCreate]) -> None:
@@ -117,83 +118,109 @@ class NutritionRepository:
             return
         columns: set[str] = self._get_daily_logs_columns()
         has_meal_date: bool = "meal_date" in columns
+        has_user_id: bool = "user_id" in columns and all(meal.user_id is not None for meal in meals)
+
+        column_list: list[str] = ["user_name", "food_name", "calories_consumed", "is_fail"]
+        value_list: list[str] = [":user_name", ":food_name", ":calories_consumed", ":is_fail"]
         if has_meal_date:
-            query = text(
-                """
-                INSERT INTO daily_logs (user_name, food_name, calories_consumed, is_fail, meal_date)
-                VALUES (:user_name, :food_name, :calories_consumed, :is_fail, :meal_date);
-                """
-            )
-            payload: list[dict[str, Any]] = [
-                {
-                    "user_name": meal.user_name,
-                    "food_name": meal.food_name,
-                    "calories_consumed": meal.calories_consumed,
-                    "is_fail": meal.is_fail,
-                    "meal_date": meal.meal_date,
-                }
-                for meal in meals
-            ]
-        else:
-            query = text(
-                """
-                INSERT INTO daily_logs (user_name, food_name, calories_consumed, is_fail)
-                VALUES (:user_name, :food_name, :calories_consumed, :is_fail);
-                """
-            )
-            payload = [
-                {
-                    "user_name": meal.user_name,
-                    "food_name": meal.food_name,
-                    "calories_consumed": meal.calories_consumed,
-                    "is_fail": meal.is_fail,
-                }
-                for meal in meals
-            ]
+            column_list.append("meal_date")
+            value_list.append(":meal_date")
+        if has_user_id:
+            column_list.append("user_id")
+            value_list.append(":user_id")
+
+        query = text(
+            f"INSERT INTO daily_logs ({', '.join(column_list)}) "
+            f"VALUES ({', '.join(value_list)});"
+        )
+        payload: list[dict[str, Any]] = []
+        for meal in meals:
+            row: dict[str, Any] = {
+                "user_name": meal.user_name,
+                "food_name": meal.food_name,
+                "calories_consumed": meal.calories_consumed,
+                "is_fail": meal.is_fail,
+            }
+            if has_meal_date:
+                row["meal_date"] = meal.meal_date
+            if has_user_id:
+                row["user_id"] = meal.user_id
+            payload.append(row)
         with self.session_scope() as session:
             session.execute(query, payload)
 
-    def fetch_daily_logs(self, user_name: str, target_date: date) -> list[DailyLogRecord]:
-        """Fetch user logs for a specific date."""
+    def fetch_daily_logs(
+        self,
+        user_name: str,
+        target_date: date,
+        user_id: int | None = None,
+    ) -> list[DailyLogRecord]:
+        """Fetch user logs for a specific date.
+
+        When the `user_id` column exists and a value is provided, filtering is
+        done by `user_id` (more correct under name changes). Otherwise it falls
+        back to filtering by `user_name` for backward compatibility.
+        """
         try:
             columns: set[str] = self._get_daily_logs_columns()
             has_created_at: bool = "created_at" in columns
             has_meal_date: bool = "meal_date" in columns
+            has_user_id: bool = "user_id" in columns
+            user_id_select: str = "user_id" if has_user_id else "NULL::bigint AS user_id"
+            use_user_id_filter: bool = has_user_id and user_id is not None
+            user_predicate: str = (
+                "user_id = :user_id" if use_user_id_filter else "user_name = :user_name"
+            )
+
+            base_params: dict[str, Any] = {"target_date": target_date}
+            if use_user_id_filter:
+                base_params["user_id"] = user_id
+            else:
+                base_params["user_name"] = user_name
+
             if has_meal_date:
                 query = text(
-                    """
-                    SELECT id, user_name, food_name, calories_consumed, is_fail, NULL::timestamp AS created_at, meal_date
+                    f"""
+                    SELECT id, user_name, food_name, calories_consumed, is_fail,
+                           NULL::timestamp AS created_at, meal_date, {user_id_select}
                     FROM daily_logs
-                    WHERE user_name = :user_name
+                    WHERE {user_predicate}
                       AND meal_date = :target_date
                     ORDER BY id DESC;
                     """
                 )
-                params: dict[str, Any] = {"user_name": user_name, "target_date": target_date}
+                params: dict[str, Any] = base_params
             elif has_created_at:
                 query = text(
-                    """
-                    SELECT id, user_name, food_name, calories_consumed, is_fail, created_at, NULL::date AS meal_date
+                    f"""
+                    SELECT id, user_name, food_name, calories_consumed, is_fail,
+                           created_at, NULL::date AS meal_date, {user_id_select}
                     FROM daily_logs
-                    WHERE user_name = :user_name
+                    WHERE {user_predicate}
                       AND DATE(created_at) = :target_date
                     ORDER BY created_at DESC;
                     """
                 )
-                params: dict[str, Any] = {"user_name": user_name, "target_date": target_date}
+                params = base_params
             else:
                 LOGGER.warning(
                     "daily_logs.created_at is missing; using non-date-filtered fallback query."
                 )
+                fallback_params: dict[str, Any] = {}
+                if use_user_id_filter:
+                    fallback_params["user_id"] = user_id
+                else:
+                    fallback_params["user_name"] = user_name
                 query = text(
-                    """
-                    SELECT id, user_name, food_name, calories_consumed, is_fail, NULL::timestamp AS created_at, NULL::date AS meal_date
+                    f"""
+                    SELECT id, user_name, food_name, calories_consumed, is_fail,
+                           NULL::timestamp AS created_at, NULL::date AS meal_date, {user_id_select}
                     FROM daily_logs
-                    WHERE user_name = :user_name
+                    WHERE {user_predicate}
                     ORDER BY id DESC;
                     """
                 )
-                params = {"user_name": user_name}
+                params = fallback_params
 
             with self.session_scope() as session:
                 result = session.execute(query, params)

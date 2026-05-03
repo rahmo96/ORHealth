@@ -19,6 +19,7 @@ class MealLogCreate(BaseModel):
     calories_consumed: int = Field(gt=0, le=10000)
     is_fail: bool = False
     meal_date: date | None = None
+    user_id: int | None = Field(default=None, gt=0)
 
     @field_validator("user_name")
     @classmethod
@@ -27,6 +28,14 @@ class MealLogCreate(BaseModel):
         if not USERNAME_PATTERN.match(value):
             raise ValueError("Username includes invalid characters.")
         return value
+
+
+class User(BaseModel):
+    """פרופיל משתמש כפי שנשמר בטבלת users."""
+    id: int = Field(gt=0)
+    display_name: str = Field(min_length=2, max_length=40)
+    daily_calorie_goal: int = Field(gt=0)
+    has_pin: bool = False
 
 class FoodItem(BaseModel):
     """שורת קטלוג מזון כפי שחוזרת מהדאטה-בייס."""
@@ -49,6 +58,7 @@ class DailyLogRecord(BaseModel):
     is_fail: bool
     created_at: datetime | None = None
     meal_date: date | None = None
+    user_id: int | None = None
 
 class DailySummary(BaseModel):
     """סיכום יומי עבור המשתמש."""
