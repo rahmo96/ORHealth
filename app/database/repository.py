@@ -26,9 +26,12 @@ class NutritionRepository:
             connection: Streamlit SQL connection object from `st.connection`.
         """
         self._connection: Any = connection
+        self._daily_logs_columns_cache: set[str] | None = None
 
     def _get_daily_logs_columns(self) -> set[str]:
-        """Return the available columns for the daily_logs table."""
+        """Return the available columns for the daily_logs table (cached per repository)."""
+        if self._daily_logs_columns_cache is not None:
+            return self._daily_logs_columns_cache
         query = text(
             """
             SELECT column_name
@@ -40,7 +43,8 @@ class NutritionRepository:
         with self.session_scope() as session:
             result = session.execute(query)
             rows: Sequence[Any] = result.fetchall()
-        return {str(row._mapping["column_name"]) for row in rows}
+        self._daily_logs_columns_cache = {str(row._mapping["column_name"]) for row in rows}
+        return self._daily_logs_columns_cache
 
     @contextmanager
     def session_scope(self) -> Generator[Any, None, None]:

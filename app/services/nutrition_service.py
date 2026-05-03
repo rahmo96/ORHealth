@@ -84,9 +84,18 @@ class NutritionService:
         """Return all meal logs for a user on a selected day."""
         return self._repository.fetch_daily_logs(user_name=user_name, target_date=target_date)
 
-    def get_daily_summary(self, *, user_name: str, target_date: date) -> DailySummary:
-        """Calculate total and remaining calories for a user day."""
-        logs = self._repository.fetch_daily_logs(user_name=user_name, target_date=target_date)
+    def get_journal_for_day(
+        self, *, user_name: str, target_date: date
+    ) -> tuple[list[DailyLogRecord], DailySummary]:
+        """Fetch logs once and derive the daily summary (single DB read)."""
+        logs: list[DailyLogRecord] = self._repository.fetch_daily_logs(
+            user_name=user_name, target_date=target_date
+        )
+        summary: DailySummary = self._summary_from_logs(logs=logs, user_name=user_name)
+        return logs, summary
+
+    def _summary_from_logs(self, *, logs: list[DailyLogRecord], user_name: str) -> DailySummary:
+        """Build summary metrics from already-loaded log rows."""
         total_calories: int = sum(item.calories_consumed for item in logs)
         fail_count: int = sum(1 for item in logs if item.is_fail)
         daily_goal: int = USER_DAILY_GOALS.get(user_name, DEFAULT_DAILY_GOAL)
@@ -95,3 +104,8 @@ class NutritionService:
             fail_count=fail_count,
             daily_goal=daily_goal,
         )
+
+    def get_daily_summary(self, *, user_name: str, target_date: date) -> DailySummary:
+        """Calculate total and remaining calories for a user day."""
+        logs = self._repository.fetch_daily_logs(user_name=user_name, target_date=target_date)
+        return self._summary_from_logs(logs=logs, user_name=user_name)

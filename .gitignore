@@ -24,6 +24,7 @@ dist/
 
 # Streamlit local config and secrets
 .streamlit/secrets.toml
+.streamlit/config.toml
 
 # Environment files
 .env

@@ -16,7 +16,7 @@ from app.core.logging_config import configure_logging
 from app.database.repository import NutritionRepository
 from app.models.schemas import DailyLogRecord, DailySummary, FoodItem, MealBasketItem
 from app.services.nutrition_service import NutritionService
-from app.ui.styles import APP_CSS
+from app.ui.styles import inject_global_styles
 
 st.set_page_config(page_title="ORHealth", page_icon="🍏", layout="centered")
 configure_logging()
@@ -85,26 +85,20 @@ def get_service() -> NutritionService:
     return NutritionService(repository=repository)
 
 
-@st.cache_data(ttl=60, show_spinner=False)
+@st.cache_data(ttl=300, show_spinner=False)
 def cached_food_catalog() -> list[dict[str, Any]]:
     """Return cached food catalog as serializable dictionaries."""
     return [item.model_dump() for item in get_service().get_food_catalog()]
 
 
-@st.cache_data(ttl=30, show_spinner=False)
-def cached_daily_summary(user_name: str, target_date: date) -> dict[str, Any]:
-    """Return cached daily summary as a serializable dictionary."""
-    return get_service().get_daily_summary(user_name=user_name, target_date=target_date).model_dump()
-
-
-@st.cache_data(ttl=30, show_spinner=False)
-def cached_daily_logs(user_name: str, target_date: date) -> list[dict[str, Any]]:
-    """Return cached daily logs as serializable dictionaries."""
-    records: list[DailyLogRecord] = get_service().get_daily_logs(
-        user_name=user_name,
-        target_date=target_date,
-    )
-    return [record.model_dump(mode="json") for record in records]
+@st.cache_data(ttl=15, show_spinner=False)
+def cached_journal_day(user_name: str, target_date: date) -> dict[str, Any]:
+    """Return logs + summary for one day in a single DB round-trip (cached briefly)."""
+    logs, summary = get_service().get_journal_for_day(user_name=user_name, target_date=target_date)
+    return {
+        "logs": [record.model_dump(mode="json") for record in logs],
+        "summary": summary.model_dump(),
+    }
 
 
 def render_login() -> None:
@@ -129,9 +123,8 @@ def render_dashboard(user_name: str) -> None:
     food_options: list[str] = [item.food_name for item in foods]
     calories_by_food: dict[str, int] = {item.food_name: item.default_calories for item in foods}
 
-    summary: DailySummary = DailySummary.model_validate(
-        cached_daily_summary(user_name=user_name, target_date=target_date)
-    )
+    journal: dict[str, Any] = cached_journal_day(user_name=user_name, target_date=target_date)
+    summary: DailySummary = DailySummary.model_validate(journal["summary"])
     metric_col1, metric_col2, metric_col3 = st.columns(3)
     metric_col1.markdown(
         f"""
@@ -221,8 +214,7 @@ def render_dashboard(user_name: str) -> None:
                         for item in basket_items_all
                         if item.meal_date != target_date
                     ]
-                    cached_daily_summary.clear()
-                    cached_daily_logs.clear()
+                    cached_journal_day.clear()
                     status.update(label="הארוחה נשמרה בהצלחה", state="complete")
                     st.toast("כל הפריטים נשמרו בהצלחה", icon="🎉")
                     st.rerun()
@@ -257,8 +249,7 @@ def render_dashboard(user_name: str) -> None:
         unsafe_allow_html=True,
     )
     saved_logs: list[DailyLogRecord] = [
-        DailyLogRecord.model_validate(item)
-        for item in cached_daily_logs(user_name=user_name, target_date=target_date)
+        DailyLogRecord.model_validate(item) for item in journal["logs"]
     ]
     if saved_logs:
         st.dataframe(
@@ -278,9 +269,8 @@ def render_progress_page(user_name: str) -> None:
     """Render progress placeholder page."""
     st.markdown('<div class="title">התקדמות</div>', unsafe_allow_html=True)
     progress_date: date = st.date_input("בחר תאריך למעקב", value=date.today(), key="progress_date")
-    summary: DailySummary = DailySummary.model_validate(
-        cached_daily_summary(user_name=user_name, target_date=progress_date)
-    )
+    journal: dict[str, Any] = cached_journal_day(user_name=user_name, target_date=progress_date)
+    summary: DailySummary = DailySummary.model_validate(journal["summary"])
     st.metric("סה\"כ קלוריות היום", summary.total_calories)
     st.metric("נותר ליעד", summary.remaining_calories)
     st.info("בקרוב: גרפים ומעקב מגמות.")
@@ -299,7 +289,12 @@ def render_settings_page(user_name: str) -> None:
 
 
 def render_bottom_navigation(active_page: str) -> None:
-    """Render bottom bar with icons and Hebrew labels (RTL)."""
+    """Render bottom bar with icons and Hebrew labels (RTL).
+
+    Uses st.container(border=True) so CSS can target the bordered wrapper as a
+    fixed bottom tab bar. Avoid adding other bordered containers without
+    updating styles (only one bar is expected).
+    """
     icon_journal = (
         '<div class="bottom-nav-icon" aria-hidden="true">'
         '<svg xmlns="http://www.w3.org/2000/svg" width="26" height="26" viewBox="0 0 24 24" '
@@ -365,7 +360,7 @@ def render_bottom_navigation(active_page: str) -> None:
 
 def main() -> None:
     """Run Streamlit presentation entry point."""
-    st.markdown(APP_CSS, unsafe_allow_html=True)
+    inject_global_styles()
 
     if "logged_in_user" not in st.session_state:
         st.session_state.logged_in_user = None
