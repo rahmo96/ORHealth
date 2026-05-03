@@ -184,7 +184,7 @@ section[data-testid="stBottom"] {
     max-width: 100% !important;
     margin: 0 !important;
     margin-top: 0 !important;
-    padding: 0.65rem 0.75rem calc(0.65rem + env(safe-area-inset-bottom, 0px)) !important;
+    padding: 0.45rem 0.55rem calc(0.45rem + env(safe-area-inset-bottom, 0px)) !important;
     background: var(--nav-bar-bg) !important;
     border: none !important;
     border-top: 1px solid rgba(0, 0, 0, 0.06) !important;
@@ -193,49 +193,48 @@ section[data-testid="stBottom"] {
     backdrop-filter: blur(12px);
 }
 
-[data-testid="stVerticalBlockBorderWrapper"] [data-testid="column"] {
-    text-align: center;
+section[data-testid="stBottom"] [data-testid="element-container"] {
+    margin-bottom: 0.15rem !important;
 }
 
-.bottom-nav-icon {
-    display: flex;
-    justify-content: center;
-    align-items: center;
-    margin-bottom: 0.15rem;
-    color: var(--nav-bar-text-muted);
+[data-testid="stVerticalBlockBorderWrapper"] div[role="radiogroup"],
+[data-testid="stVerticalBlockBorderWrapper"] [data-testid="stHorizontalBlock"] {
+    width: 100% !important;
+    gap: 0.2rem !important;
 }
 
-[data-testid="stVerticalBlockBorderWrapper"] [data-testid="column"]:has(button[kind="primary"]) .bottom-nav-icon {
-    color: var(--accent-primary);
-}
-
-/* Active tab: filled accent */
-[data-testid="stVerticalBlockBorderWrapper"] .stButton > button[kind="primary"],
-[data-testid="stVerticalBlockBorderWrapper"] .stButton > button[data-testid="baseButton-primary"] {
-    background: var(--accent-primary) !important;
-    color: #fff !important;
-    font-weight: 700 !important;
+[data-testid="stVerticalBlockBorderWrapper"] div[role="radiogroup"] button,
+[data-testid="stVerticalBlockBorderWrapper"] button {
     min-height: 40px !important;
-    font-size: 0.82rem !important;
-    border: none !important;
-    box-shadow: 0 2px 8px rgba(109, 76, 130, 0.35) !important;
+    padding-left: 0.35rem !important;
+    padding-right: 0.35rem !important;
 }
 
-/* Inactive tabs: light ghost buttons on white bar */
-[data-testid="stVerticalBlockBorderWrapper"] .stButton > button[kind="secondary"],
-[data-testid="stVerticalBlockBorderWrapper"] .stButton > button[data-testid="baseButton-secondary"] {
-    background: transparent !important;
-    color: var(--nav-bar-text) !important;
-    border: 1px solid transparent !important;
-    font-weight: 600 !important;
-    min-height: 40px !important;
-    font-size: 0.82rem !important;
-}
+@media (max-width: 640px) {
+    [data-testid="stVerticalBlockBorderWrapper"] {
+        padding: 0.3rem 0.3rem calc(0.3rem + env(safe-area-inset-bottom, 0px)) !important;
+        border-radius: 14px 14px 0 0 !important;
+        box-shadow: 0 -4px 20px rgba(0, 0, 0, 0.2) !important;
+    }
 
-[data-testid="stVerticalBlockBorderWrapper"] .stButton > button[kind="secondary"]:hover,
-[data-testid="stVerticalBlockBorderWrapper"] .stButton > button[data-testid="baseButton-secondary"]:hover {
-    background: rgba(109, 76, 130, 0.08) !important;
-    color: var(--accent-primary) !important;
+    section[data-testid="stBottom"] [data-testid="element-container"] {
+        margin-bottom: 0 !important;
+    }
+
+    [data-testid="stVerticalBlockBorderWrapper"] div[role="radiogroup"],
+    [data-testid="stVerticalBlockBorderWrapper"] [data-testid="stHorizontalBlock"] {
+        gap: 0.1rem !important;
+        flex-wrap: nowrap !important;
+    }
+
+    [data-testid="stVerticalBlockBorderWrapper"] div[role="radiogroup"] button,
+    [data-testid="stVerticalBlockBorderWrapper"] button {
+        min-height: 32px !important;
+        padding: 0.15rem 0.2rem !important;
+        font-size: clamp(0.58rem, 3.1vw, 0.72rem) !important;
+        font-weight: 600 !important;
+        line-height: 1.1 !important;
+    }
 }
 
 /* Keep Streamlit Cloud “Manage app” / toolbar above the fixed nav */
@@ -336,23 +335,6 @@ div.stButton > button[kind="secondaryFormSubmit"]:hover {
     filter: brightness(1.08) !important;
 }
 
-/* Row above tab bar inside the bottom dock */
-.manage-app-strip {
-    box-sizing: border-box !important;
-    width: 100% !important;
-    display: flex !important;
-    align-items: center !important;
-    justify-content: flex-start !important;
-    direction: rtl !important;
-    padding: 0.35rem 1rem !important;
-    margin: 0 !important;
-    background: rgba(18, 20, 32, 0.97) !important;
-    border-top: 1px solid var(--border-subtle) !important;
-    color: #9a9cab !important;
-    font-size: 0.72rem !important;
-    text-align: right !important;
-    backdrop-filter: blur(10px);
-}
 """
 
 
