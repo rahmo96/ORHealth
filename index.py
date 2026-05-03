@@ -23,6 +23,11 @@ configure_logging()
 LOGGER: logging.Logger = logging.getLogger(__name__)
 USER_CHOICES: tuple[str, str] = ("רחמים", "אורלי")
 
+PAGE_JOURNAL: str = "יומן ארוחות"
+PAGE_PROGRESS: str = "התקדמות"
+PAGE_SETTINGS: str = "הגדרות"
+NAV_PAGES: tuple[str, ...] = (PAGE_JOURNAL, PAGE_PROGRESS, PAGE_SETTINGS)
+
 
 def resolve_database_url() -> str | None:
     """Resolve database URL from environment or Streamlit secrets."""
@@ -293,6 +298,71 @@ def render_settings_page(user_name: str) -> None:
         st.rerun()
 
 
+def render_bottom_navigation(active_page: str) -> None:
+    """Render bottom bar with icons and Hebrew labels (RTL)."""
+    icon_journal = (
+        '<div class="bottom-nav-icon" aria-hidden="true">'
+        '<svg xmlns="http://www.w3.org/2000/svg" width="26" height="26" viewBox="0 0 24 24" '
+        'fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" '
+        'stroke-linejoin="round"><path d="M3 2v7c0 1.1.9 2 2 2h4a2 2 0 0 0 2-2V2"/>'
+        '<path d="M7 2v20"/><path d="M21 15V2a5 5 0 0 0-5 5v6c0 1.1.9 2 2 2h3zm0 0v7"/></svg>'
+        "</div>"
+    )
+    icon_progress = (
+        '<div class="bottom-nav-icon" aria-hidden="true">'
+        '<svg xmlns="http://www.w3.org/2000/svg" width="26" height="26" viewBox="0 0 24 24" '
+        'fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" '
+        'stroke-linejoin="round"><path d="M22 7L13.5 15.5 8.5 10.5 2 17"/>'
+        '<path d="M16 7h6v6"/></svg></div>'
+    )
+    icon_settings = (
+        '<div class="bottom-nav-icon" aria-hidden="true">'
+        '<svg xmlns="http://www.w3.org/2000/svg" width="26" height="26" viewBox="0 0 24 24" '
+        'fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" '
+        'stroke-linejoin="round"><path d="M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6Z"/>'
+        '<path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1Z"/></svg>'
+        "</div>"
+    )
+
+    with st.container(border=True):
+        col_journal, col_progress, col_settings = st.columns(3)
+        with col_journal:
+            st.markdown(icon_journal, unsafe_allow_html=True)
+            if st.button(
+                PAGE_JOURNAL,
+                key="bottom_nav_journal",
+                use_container_width=True,
+                type="primary" if active_page == PAGE_JOURNAL else "secondary",
+            ):
+                if st.session_state.active_page != PAGE_JOURNAL:
+                    st.session_state.active_page = PAGE_JOURNAL
+                    st.rerun()
+
+        with col_progress:
+            st.markdown(icon_progress, unsafe_allow_html=True)
+            if st.button(
+                PAGE_PROGRESS,
+                key="bottom_nav_progress",
+                use_container_width=True,
+                type="primary" if active_page == PAGE_PROGRESS else "secondary",
+            ):
+                if st.session_state.active_page != PAGE_PROGRESS:
+                    st.session_state.active_page = PAGE_PROGRESS
+                    st.rerun()
+
+        with col_settings:
+            st.markdown(icon_settings, unsafe_allow_html=True)
+            if st.button(
+                PAGE_SETTINGS,
+                key="bottom_nav_settings",
+                use_container_width=True,
+                type="primary" if active_page == PAGE_SETTINGS else "secondary",
+            ):
+                if st.session_state.active_page != PAGE_SETTINGS:
+                    st.session_state.active_page = PAGE_SETTINGS
+                    st.rerun()
+
+
 def main() -> None:
     """Run Streamlit presentation entry point."""
     st.markdown(APP_CSS, unsafe_allow_html=True)
@@ -301,26 +371,27 @@ def main() -> None:
         st.session_state.logged_in_user = None
     if "meal_basket" not in st.session_state:
         st.session_state.meal_basket = []
+    if "active_page" not in st.session_state:
+        st.session_state.active_page = PAGE_JOURNAL
+    if st.session_state.active_page not in NAV_PAGES:
+        st.session_state.active_page = PAGE_JOURNAL
 
     if st.session_state.logged_in_user is None:
         render_login()
         st.stop()
 
     current_user: str = str(st.session_state.logged_in_user)
-    selected_page: str = st.sidebar.radio(
-        "ניווט",
-        options=["יומן ארוחות", "התקדמות", "הגדרות"],
-        index=0,
-    )
+    selected_page: str = str(st.session_state.active_page)
     try:
         with st.spinner("טוען נתונים..."):
-            if selected_page == "יומן ארוחות":
+            if selected_page == PAGE_JOURNAL:
                 render_dashboard(current_user)
-            elif selected_page == "התקדמות":
+            elif selected_page == PAGE_PROGRESS:
                 render_progress_page(current_user)
             else:
                 render_settings_page(current_user)
         st.markdown('<div class="footer-meta">Manage app</div>', unsafe_allow_html=True)
+        render_bottom_navigation(selected_page)
     except DatabaseAppError as error:
         error_text: str = str(error)
         if "Cannot assign requested address" in error_text:

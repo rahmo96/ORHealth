@@ -41,53 +41,52 @@ APP_CSS: str = """
     h1, h2, h3 {
         font-weight: 700 !important;
     }
-    .stSidebar {
-        border-inline-start: 1px solid var(--border-subtle);
-        background: linear-gradient(180deg, #0d0f18 0%, #101322 100%);
+    section[data-testid="stSidebar"],
+    button[data-testid="collapsedControl"] {
+        display: none !important;
     }
-    .stSidebar .stRadio > div {
-        gap: 0.45rem;
+    section[data-testid="stMain"] {
+        padding-bottom: 1.25rem !important;
     }
-    .stSidebar .stRadio label {
-        border-radius: 12px;
-        padding: 0.5rem 0.8rem 0.5rem 0.5rem;
-        background: transparent;
-        transition: all 0.2s ease;
-        border: 1px solid transparent;
-        position: relative;
+    section[data-testid="stMain"] [data-testid="stVerticalBlockBorderWrapper"] {
+        margin-top: 1.25rem;
+        padding: 0.5rem 0.35rem 0.65rem !important;
+        background: linear-gradient(180deg, rgba(13, 15, 24, 0.95) 0%, #101322 100%);
+        border: 1px solid var(--border-subtle) !important;
+        border-radius: 16px;
+        box-shadow: 0 8px 28px rgba(0, 0, 0, 0.35);
     }
-    .stSidebar .stRadio label:has(input:checked) {
-        border-color: rgba(109, 76, 130, 0.35);
-        background: rgba(109, 76, 130, 0.12);
+    section[data-testid="stMain"] [data-testid="stVerticalBlockBorderWrapper"] [data-testid="column"] {
+        text-align: center;
     }
-    .stSidebar .stRadio label:has(input:checked) span {
-        color: var(--accent-primary) !important;
+    .bottom-nav-icon {
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        margin-bottom: 0.15rem;
+        color: var(--text-soft);
+    }
+    section[data-testid="stMain"] [data-testid="stVerticalBlockBorderWrapper"] [data-testid="column"]:has(button[kind="primary"]) .bottom-nav-icon {
+        color: var(--accent-primary);
+    }
+    section[data-testid="stMain"] [data-testid="stVerticalBlockBorderWrapper"] .stButton > button[kind="primary"] {
+        background: var(--accent-primary) !important;
+        color: #fff !important;
         font-weight: 700;
+        min-height: 40px;
+        font-size: 0.82rem;
     }
-    .stSidebar .stRadio label:has(input:checked)::before {
-        content: "";
-        position: absolute;
-        left: 8px;
-        top: 50%;
-        transform: translateY(-50%);
-        width: 8px;
-        height: 8px;
-        border-radius: 50%;
-        background: var(--accent-primary);
-        box-shadow: 0 0 8px rgba(109, 76, 130, 0.7);
+    section[data-testid="stMain"] [data-testid="stVerticalBlockBorderWrapper"] .stButton > button[kind="secondary"] {
+        background: rgba(26, 31, 47, 0.95) !important;
+        color: var(--text-soft) !important;
+        border: 1px solid var(--border-subtle) !important;
+        font-weight: 500;
+        min-height: 40px;
+        font-size: 0.82rem;
     }
-    .stSidebar .stRadio label span:first-of-type {
-        display: none;
-    }
-    .stSidebar .stRadio label:nth-of-type(1) div[role="radiogroup"] + div,
-    .stSidebar .stRadio label:nth-of-type(1) span:last-child::before {
-        content: "🍴 ";
-    }
-    .stSidebar .stRadio label:nth-of-type(2) span:last-child::before {
-        content: "📈 ";
-    }
-    .stSidebar .stRadio label:nth-of-type(3) span:last-child::before {
-        content: "⚙️ ";
+    section[data-testid="stMain"] [data-testid="stVerticalBlockBorderWrapper"] .stButton > button[kind="secondary"]:hover {
+        border-color: rgba(109, 76, 130, 0.45) !important;
+        color: var(--text-main) !important;
     }
     .summary-card {
         border: 1px solid var(--border-subtle);
